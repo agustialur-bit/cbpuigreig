@@ -20,6 +20,8 @@
  */
 
 var FULLS = {
+  // A "Jugadors", la columna Actiu només cal omplir-la per donar de baixa algú:
+  // deixar-la en blanc vol dir que el jugador hi és (mira esActiu_).
   jugadors:    { nom: 'Jugadors',               capcalera: ['Nom', 'Equip', 'Actiu'] },
   assistencia: { nom: 'Assistencia',            capcalera: ['Data', 'Jugador', 'Assistit', 'Comentari', 'Timestamp'] },
   exercicis:   { nom: 'Entrenaments_exercicis', capcalera: ['Data', 'Concepte', 'Minuts', 'Comentari', 'Timestamp'] },
@@ -102,6 +104,19 @@ function esSi_(val) {
   return s === 'SI' || s === 'SÍ' || s === 'S' || s === 'TRUE' || s === 'X' || s === '1' || s === 'VERTADER';
 }
 
+/**
+ * La columna "Actiu" va al revés de les altres: serveix per marcar BAIXES.
+ * Per defecte tothom qui és al full compta com a actiu, i només el treu de la
+ * llista un NO explícit. Així, per afegir un jugador nou a mitja temporada
+ * només cal escriure-hi el nom.
+ */
+function esActiu_(val) {
+  if (val === false) return false;
+  var s = String(val === null || val === undefined ? '' : val).trim().toUpperCase();
+  if (s === '') return true;
+  return !(s === 'NO' || s === 'N' || s === 'FALSE' || s === 'FALS' || s === '0' || s === 'BAIXA');
+}
+
 function num_(val) {
   if (val === '' || val === null || val === undefined) return null;
   var n = Number(String(val).replace(',', '.'));
@@ -120,7 +135,7 @@ function llegeixJugadors_() {
   return files_('jugadors')
     .filter(function (r) { return String(r[0] || '').trim() !== ''; })
     .map(function (r) {
-      return { nom: String(r[0]).trim(), equip: String(r[1] || '').trim(), actiu: esSi_(r[2]) };
+      return { nom: String(r[0]).trim(), equip: String(r[1] || '').trim(), actiu: esActiu_(r[2]) };
     });
 }
 

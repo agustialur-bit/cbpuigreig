@@ -58,8 +58,9 @@ i enganxa-hi la URL entre les cometes. És l'única línia que cal tocar.
 
 ### 5 · La plantilla
 
-Omple la pestanya **Jugadors** del Sheet: un nom per fila, i `SI` a la columna
-`Actiu`. Només els actius surten a la llista d'assistència.
+Omple la pestanya **Jugadors** del Sheet: un nom per fila. La columna `Actiu`
+la pots deixar **en blanc** — només cal escriure-hi `NO` el dia que algú plegui,
+per treure'l de la llista sense perdre'n l'històric.
 
 ---
 
@@ -67,7 +68,7 @@ Omple la pestanya **Jugadors** del Sheet: un nom per fila, i `SI` a la columna
 
 | Pestanya | Columnes | Qui hi escriu |
 |---|---|---|
-| `Jugadors` | Nom · Equip · Actiu (SI/NO) | tu, a mà |
+| `Jugadors` | Nom · Equip · Actiu (buit = hi és; `NO` = baixa) | tu, a mà |
 | `Assistencia` | Data · Jugador · Assistit · Comentari · Timestamp | l'app |
 | `Entrenaments_exercicis` | Data · Concepte · Minuts · Comentari · Timestamp | l'app |
 | `Conceptes` | Concepte · Descripcio · Treballat_SI_NO · Ordre | tots dos |
@@ -90,10 +91,19 @@ files velles d'aquell dia i n'escriu de noves) — així no es dupliquen mai.
 Per defecte tothom surt com a present; en marcar una absència s'obre sol el
 camp de comentari.
 
+A *Resum del curs* hi ha el percentatge de cada jugador, ordenat pels que més
+fallen. Cada jugador es compara amb **els dies que ell tenia a la llista**, no
+amb el total de la temporada: qui s'incorpora a mitja temporada no ha de sortir
+penalitzat pels entrenaments d'abans que hi fos.
+
 **Entrenaments.** Igual: un dia només pot tenir una sessió, i tornar-la a desar
 la substitueix. En desar, els conceptes que hi surten es marquen sols com a
 treballats a la pestanya `Conceptes` (marcar-los sí, desmarcar-los mai — un
 concepte treballat un altre dia ha de continuar comptant).
+
+A *Conceptes* hi ha, a més de l'estat, els **minuts acumulats** de tota la
+temporada per concepte i en quantes sessions s'ha tocat, ordenable per veure
+de seguida a què dediques més estona.
 
 **Els 404 d'Apps Script.** El web app de Google respon 404 de tant en tant, i
 quan ho fa sovint ja ha escrit les files igualment. Per això l'app no reintenta

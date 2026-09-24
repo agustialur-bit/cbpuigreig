@@ -219,6 +219,19 @@
     display:flex; align-items:center; justify-content:center; font-size:14px;
   }
 
+  /* ---------- Files de resum (assistència, conceptes) ---------- */
+  .stat-item{
+    background:var(--bg-soft); border:1px solid var(--line);
+    border-radius:10px; padding:10px 12px; margin-bottom:7px;
+  }
+  .stat-item.clic{cursor:pointer;}
+  .mini-bar{
+    height:5px; border-radius:3px; background:rgba(255,255,255,.06);
+    overflow:hidden; margin-top:7px;
+  }
+  .mini-bar > div{height:100%; border-radius:3px;}
+  .pct{font-family:'Oswald',sans-serif; font-weight:600; font-size:13px; min-width:38px; text-align:right;}
+
   /* ---------- Dies / partits plegables ---------- */
   .day{
     background:var(--bg-raised); border:1px solid var(--line);
@@ -383,28 +396,39 @@
 
   <!-- ============ ASSISTÈNCIA ============ -->
   <section class="view" id="view-assistencia">
-    <div class="card">
-      <label class="field" style="margin-bottom:0">
-        <span>Dia de l'entrenament</span>
-        <input type="date" id="assistDate">
-      </label>
+    <div class="segmented" id="assistSeg">
+      <button class="active" onclick="subAssist('passar')">Passar llista</button>
+      <button onclick="subAssist('resum')">Resum del curs</button>
     </div>
 
-    <div id="assistAvis"></div>
+    <div id="sub-passar">
+      <div class="card">
+        <label class="field" style="margin-bottom:0">
+          <span>Dia de l'entrenament</span>
+          <input type="date" id="assistDate">
+        </label>
+      </div>
 
-    <div class="card">
-      <div class="counter">
-        <div class="card-title" style="margin:0">Plantilla</div>
-        <div class="big" id="assistCount">0<span>/0</span></div>
+      <div id="assistAvis"></div>
+
+      <div class="card">
+        <div class="counter">
+          <div class="card-title" style="margin:0">Plantilla</div>
+          <div class="big" id="assistCount">0<span>/0</span></div>
+        </div>
+        <div class="btn-row" style="margin-bottom:6px">
+          <button class="btn-ghost btn-sm" onclick="marcaTots(true)">Tots presents</button>
+          <button class="btn-ghost btn-sm" onclick="marcaTots(false)">Cap</button>
+        </div>
+        <div id="assistList"><div class="spinner">Carregant plantilla…</div></div>
       </div>
-      <div class="btn-row" style="margin-bottom:6px">
-        <button class="btn-ghost btn-sm" onclick="marcaTots(true)">Tots presents</button>
-        <button class="btn-ghost btn-sm" onclick="marcaTots(false)">Cap</button>
-      </div>
-      <div id="assistList"><div class="spinner">Carregant plantilla…</div></div>
+
+      <button class="btn-primary" id="assistSave" onclick="desaAssistencia()">Desar assistència</button>
     </div>
 
-    <button class="btn-primary" id="assistSave" onclick="desaAssistencia()">Desar assistència</button>
+    <div id="sub-resum" style="display:none">
+      <div id="resumAssist"><div class="spinner">Carregant…</div></div>
+    </div>
   </section>
 
   <!-- ============ ENTRENAMENTS ============ -->
@@ -838,6 +862,8 @@ async function carregaInici(forca){
    ═══════════════════════════════════════════════════════════════════ */
 
 let assistExistent = false;   // ja hi ha llista desada per al dia triat?
+let subAssistActual = 'passar';
+let ASSISTENCIES = null;      // còpia de totes les assistències del full
 
 async function obreAssistencia(){
   const input = document.getElementById('assistDate');
@@ -849,7 +875,19 @@ async function obreAssistencia(){
       errorBox('No s\'ha pogut llegir la plantilla del full.');
     return;
   }
-  await carregaDiaAssistencia();
+  if (subAssistActual === 'passar') await carregaDiaAssistencia();
+  else await mostraResumAssistencia();
+}
+
+function subAssist(quin){
+  subAssistActual = quin;
+  document.getElementById('sub-passar').style.display = quin === 'passar' ? 'block' : 'none';
+  document.getElementById('sub-resum').style.display  = quin === 'resum'  ? 'block' : 'none';
+  document.querySelectorAll('#assistSeg button').forEach((b, i) => {
+    b.classList.toggle('active', ['passar','resum'][i] === quin);
+  });
+  window.scrollTo(0, 0);
+  if (quin === 'resum') mostraResumAssistencia();
 }
 
 /** Llegeix si aquell dia ja té llista i pinta la plantilla en conseqüència. */
@@ -862,7 +900,9 @@ async function carregaDiaAssistencia(){
 
   const actius = jugadorsActius();
   if (!actius.length){
-    llista.innerHTML = '<div class="empty">No hi ha cap jugador amb <b>Actiu = SI</b> a la pestanya <b>Jugadors</b> del full.</div>';
+    llista.innerHTML = '<div class="empty">No hi ha cap jugador a la llista.<br>' +
+      'Afegeix-ne a la pestanya <b>Jugadors</b> del full (la columna <b>Actiu</b> ' +
+      'la pots deixar buida; només cal escriure-hi <b>NO</b> per donar algú de baixa).</div>';
     document.getElementById('assistSave').disabled = true;
     return;
   }
@@ -1017,11 +1057,129 @@ async function desaAssistencia(){
     toast('Assistència desada ✓ ' + presents + ' de ' + registres.length, 'ok');
     assistExistent = true;
     iniciCarregat = false;   // que l'Inici es refresqui la propera vegada
+    ASSISTENCIES = null;     // i que el resum del curs es torni a calcular
     document.getElementById('assistAvis').innerHTML =
       '<div class="notice"><span>✓</span><div><b>Desat.</b> Si tornes a desar, substituiràs aquesta llista.</div></div>';
   } else {
     toast(res.error || 'No s\'ha pogut desar', 'ko');
   }
+}
+
+/* --- Resum del curs, per jugador ----------------------------------- */
+
+let ordreResum = 'falten';   // 'falten' | 'nom'
+
+/** Color segons com de bé va el percentatge d'assistència. */
+function colorPct(p){
+  return p >= 80 ? 'var(--green)' : p >= 60 ? 'var(--yellow)' : 'var(--red)';
+}
+
+async function mostraResumAssistencia(forca){
+  const box = document.getElementById('resumAssist');
+  if (ASSISTENCIES && !forca){ pintaResumAssistencia(); return; }
+  box.innerHTML = '<div class="spinner">Carregant…</div>';
+  try{
+    // Sense paràmetre de data, el full retorna totes les assistències de cop.
+    const d = await apiLlegeix('assistencia');
+    ASSISTENCIES = d.registres || [];
+    pintaResumAssistencia();
+  } catch(err){
+    box.innerHTML = errorBox('No s\'ha pogut connectar amb el full.') +
+      '<button class="btn-ghost btn-sm" style="width:100%" onclick="mostraResumAssistencia(true)">Tornar-ho a provar</button>';
+  }
+}
+
+function ordenaResum(ordre){
+  ordreResum = ordre;
+  pintaResumAssistencia();
+}
+
+function pintaResumAssistencia(){
+  const box = document.getElementById('resumAssist');
+  const registres = ASSISTENCIES || [];
+
+  if (!registres.length){
+    box.innerHTML = '<div class="empty">Encara no s\'ha passat cap llista.<br>' +
+      'Quan en tinguis alguna, aquí veuràs qui ve i qui falta.</div>';
+    return;
+  }
+
+  const sessions = new Set(registres.map(r => r.data)).size;
+
+  // Cada jugador es compara amb els dies que ell tenia a la llista, no amb el
+  // total del curs: qui s'ha incorporat a mitja temporada no ha de sortir
+  // penalitzat pels entrenaments d'abans que hi fos.
+  const per = {};
+  registres.forEach(r => {
+    if (!per[r.jugador]) per[r.jugador] = { jugador: r.jugador, presents: 0, dies: 0, faltes: [] };
+    per[r.jugador].dies++;
+    if (r.assistit) per[r.jugador].presents++;
+    else per[r.jugador].faltes.push({ data: r.data, comentari: r.comentari });
+  });
+
+  // Els que són a la plantilla però encara no surten a cap llista.
+  jugadorsActius().forEach(j => {
+    if (!per[j.nom]) per[j.nom] = { jugador: j.nom, presents: 0, dies: 0, faltes: [] };
+  });
+
+  const llista = Object.keys(per).map(k => {
+    const p = per[k];
+    p.pct = p.dies ? Math.round(100 * p.presents / p.dies) : null;
+    return p;
+  });
+
+  if (ordreResum === 'falten'){
+    // Els que més fallen, a dalt. Els que no tenen cap registre, al final.
+    llista.sort((a, b) => {
+      if (a.dies === 0 && b.dies === 0) return a.jugador.localeCompare(b.jugador, 'ca');
+      if (a.dies === 0) return 1;
+      if (b.dies === 0) return -1;
+      return a.pct - b.pct || a.jugador.localeCompare(b.jugador, 'ca');
+    });
+  } else {
+    llista.sort((a, b) => a.jugador.localeCompare(b.jugador, 'ca'));
+  }
+
+  const totalPresents = registres.filter(r => r.assistit).length;
+  const mitjana = Math.round(100 * totalPresents / registres.length);
+
+  box.innerHTML =
+    '<div class="card">' +
+      '<div class="counter">' +
+        '<div class="card-title" style="margin:0">Assistència mitjana</div>' +
+        '<div class="big" style="color:' + colorPct(mitjana) + '">' + mitjana + '<span>%</span></div>' +
+      '</div>' +
+      '<div class="muted">' + sessions + (sessions === 1 ? ' sessió registrada' : ' sessions registrades') + '</div>' +
+    '</div>' +
+
+    '<div class="sort-row">' +
+      '<button class="btn-sm ' + (ordreResum === 'falten' ? 'btn-primary' : 'btn-ghost') + '" style="width:auto; flex:1" onclick="ordenaResum(\'falten\')">Qui falta més</button>' +
+      '<button class="btn-sm ' + (ordreResum === 'nom' ? 'btn-primary' : 'btn-ghost') + '" style="width:auto; flex:1" onclick="ordenaResum(\'nom\')">Alfabètic</button>' +
+    '</div>' +
+
+    llista.map(p => {
+      if (!p.dies){
+        return '<div class="stat-item">' +
+          '<div class="line-main">' +
+            '<span class="l-name">' + esc(p.jugador) + '</span>' +
+            '<span class="muted" style="font-size:12px">sense registres</span>' +
+          '</div>' +
+        '</div>';
+      }
+      const color = colorPct(p.pct);
+      const absencies = p.faltes.length;
+      return '<div class="stat-item">' +
+        '<div class="line-main">' +
+          '<span class="l-name">' + esc(p.jugador) + '</span>' +
+          '<span class="l-val" style="color:var(--text-dim)">' + p.presents + '/' + p.dies + '</span>' +
+          '<span class="pct" style="color:' + color + '">' + p.pct + '%</span>' +
+        '</div>' +
+        '<div class="mini-bar"><div style="width:' + p.pct + '%; background:' + color + '"></div></div>' +
+        (absencies ? '<div class="l-note">' + absencies + (absencies === 1 ? ' absència: ' : ' absències: ') +
+            p.faltes.slice(-3).map(f => dataCurta(f.data) + (f.comentari ? ' (' + esc(f.comentari) + ')' : '')).join(' · ') +
+            (absencies > 3 ? ' …' : '') + '</div>' : '') +
+      '</div>';
+    }).join('');
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1032,6 +1190,16 @@ let subActual = 'registrar';
 let sessio = [];            // exercicis de la sessió que s'està muntant
 let conceptePendent = null;
 let entrExistent = false;
+let EXERCICIS = null;       // còpia de tots els exercicis del full
+
+/** Es demanen tots de cop i es guarden: els fan servir tant la llista de
+    sessions anteriors com el recompte de minuts per concepte. */
+async function carregaExercicis(forca){
+  if (EXERCICIS && !forca) return EXERCICIS;
+  const d = await apiLlegeix('entrenaments');
+  EXERCICIS = d.exercicis || [];
+  return EXERCICIS;
+}
 
 async function obreEntrenaments(){
   const input = document.getElementById('entrDate');
@@ -1042,7 +1210,7 @@ async function obreEntrenaments(){
   pintaChips();
   if (subActual === 'registrar') comprovaDiaEntrenament();
   if (subActual === 'consultar') carregaAnteriors();
-  if (subActual === 'conceptes') pintaConceptes();
+  if (subActual === 'conceptes') mostraConceptes();
 }
 
 function subEntr(quin){
@@ -1055,7 +1223,7 @@ function subEntr(quin){
   });
   window.scrollTo(0, 0);
   if (quin === 'consultar') carregaAnteriors();
-  if (quin === 'conceptes') pintaConceptes();
+  if (quin === 'conceptes') mostraConceptes();
   if (quin === 'registrar') comprovaDiaEntrenament();
 }
 
@@ -1217,7 +1385,8 @@ async function desaEntrenament(){
     pintaSessio();
     pintaChips();
     entrExistent = true;
-    anteriorsCarregats = false;
+    EXERCICIS = null;                                          // el resum s'ha de refer
+    document.getElementById('consultarList').dataset.pintat = '';
     iniciCarregat = false;
     document.getElementById('entrAvis').innerHTML =
       '<div class="notice"><span>✓</span><div><b>Desat.</b> Si tornes a desar per aquest dia, substituiràs la sessió.</div></div>';
@@ -1228,23 +1397,21 @@ async function desaEntrenament(){
 
 /* --- b) Consultar anteriors --------------------------------------- */
 
-let anteriorsCarregats = false;
-
 async function carregaAnteriors(forca){
   const llista = document.getElementById('consultarList');
-  if (anteriorsCarregats && !forca) return;
+  if (EXERCICIS && !forca && llista.dataset.pintat === '1') return;
   llista.innerHTML = '<div class="spinner">Carregant…</div>';
   try{
-    // Demanem tots els exercicis de cop i els agrupem aquí: és una sola
-    // crida i deixa obrir qualsevol dia sense tornar a la xarxa.
-    const d = await apiLlegeix('entrenaments');
+    // Els agrupem per dia aquí: amb una sola crida es pot obrir qualsevol
+    // sessió sense tornar a la xarxa.
+    const exercicis = await carregaExercicis(forca);
     const perDia = {};
-    (d.exercicis || []).forEach(e => {
+    exercicis.forEach(e => {
       if (!e.data) return;
       (perDia[e.data] = perDia[e.data] || []).push(e);
     });
     const dies = Object.keys(perDia).sort().reverse();
-    anteriorsCarregats = true;
+    llista.dataset.pintat = '1';
 
     if (!dies.length){
       llista.innerHTML = '<div class="empty">Encara no hi ha cap entrenament registrat.<br>Registra el primer des de la pestanya <b>Registrar</b>.</div>';
@@ -1281,6 +1448,7 @@ async function carregaAnteriors(forca){
         );
       }).join('');
   } catch(err){
+    llista.dataset.pintat = '';
     llista.innerHTML = errorBox('No s\'ha pogut connectar amb el full.') +
       '<button class="btn-ghost btn-sm" style="width:100%" onclick="carregaAnteriors(true)">Tornar-ho a provar</button>';
   }
@@ -1292,6 +1460,25 @@ function plega(id){
 
 /* --- c) Conceptes de temporada ------------------------------------ */
 
+let ordreConceptes = 'ordre';   // 'ordre' (el del full) | 'minuts'
+
+/** Carrega els exercicis (si cal) i pinta la llista de conceptes. */
+async function mostraConceptes(forca){
+  const llista = document.getElementById('conceptesList');
+  if (!EXERCICIS || forca){
+    llista.innerHTML = '<div class="spinner">Carregant…</div>';
+    try{
+      await carregaExercicis(forca);
+    } catch(err){ /* es pinta igualment, però sense els minuts */ }
+  }
+  pintaConceptes();
+}
+
+function ordenaConceptes(ordre){
+  ordreConceptes = ordre;
+  pintaConceptes();
+}
+
 function pintaConceptes(){
   const llista = document.getElementById('conceptesList');
   const resum = document.getElementById('conceptesResum');
@@ -1300,8 +1487,26 @@ function pintaConceptes(){
     resum.innerHTML = '';
     return;
   }
+
+  // Minuts acumulats de tota la temporada, concepte per concepte.
+  const minuts = {}, sessions = {};
+  (EXERCICIS || []).forEach(e => {
+    minuts[e.concepte] = (minuts[e.concepte] || 0) + Number(e.minuts || 0);
+    (sessions[e.concepte] = sessions[e.concepte] || new Set()).add(e.data);
+  });
+
+  // Si al full hi ha exercicis amb un concepte que ja no és a la llista
+  // mestra (perquè s'ha reanomenat o esborrat), també l'ensenyem.
+  const extres = Object.keys(minuts)
+    .filter(c => !CONCEPTES.some(x => x.concepte === c))
+    .map(c => ({ concepte: c, descripcio: '', treballat: true, ordre: 9999, foraDeLlista: true }));
+  const tots = CONCEPTES.concat(extres);
+
   const fets = CONCEPTES.filter(c => c.treballat).length;
   const pct = Math.round(100 * fets / CONCEPTES.length);
+  const totalMin = Object.keys(minuts).reduce((s, k) => s + minuts[k], 0);
+  const maxMin = Math.max(1, ...Object.keys(minuts).map(k => minuts[k]));
+
   resum.innerHTML =
     '<div class="card">' +
       '<div class="counter">' +
@@ -1309,17 +1514,43 @@ function pintaConceptes(){
         '<div class="big">' + fets + '<span>/' + CONCEPTES.length + '</span></div>' +
       '</div>' +
       '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
-    '</div>';
+      (totalMin ? '<div class="muted" style="margin-top:9px">' + totalMin +
+        ' minuts d\'entrenament repartits en ' + Object.keys(minuts).length + ' conceptes</div>' : '') +
+    '</div>' +
+    (totalMin ?
+      '<div class="sort-row">' +
+        '<button class="btn-sm ' + (ordreConceptes === 'ordre' ? 'btn-primary' : 'btn-ghost') + '" style="width:auto; flex:1" onclick="ordenaConceptes(\'ordre\')">Ordre del full</button>' +
+        '<button class="btn-sm ' + (ordreConceptes === 'minuts' ? 'btn-primary' : 'btn-ghost') + '" style="width:auto; flex:1" onclick="ordenaConceptes(\'minuts\')">Per minuts</button>' +
+      '</div>' : '');
 
-  llista.innerHTML = CONCEPTES.map((c, i) =>
-    '<div class="row-item" id="cc-' + i + '" style="cursor:pointer" onclick="alternaConcepte(' + i + ')">' +
-      '<div class="ri-name">' + esc(c.concepte) +
-        (c.descripcio ? '<div class="ri-sub">' + esc(c.descripcio) + '</div>' : '') +
-      '</div>' +
-      '<span class="pill ' + (c.treballat ? 'win' : 'neutral') + '" id="cp-' + i + '">' +
-        (c.treballat ? 'Treballat' : 'Pendent') + '</span>' +
-    '</div>'
-  ).join('');
+  const ordenats = tots.slice();
+  if (ordreConceptes === 'minuts'){
+    ordenats.sort((a, b) => (minuts[b.concepte] || 0) - (minuts[a.concepte] || 0));
+  }
+
+  llista.innerHTML = ordenats.map(c => {
+    const i = CONCEPTES.indexOf(c);          // -1 si és un concepte fora de llista
+    const m = minuts[c.concepte] || 0;
+    const nSes = sessions[c.concepte] ? sessions[c.concepte].size : 0;
+    return (
+      '<div class="stat-item' + (i >= 0 ? ' clic' : '') + '"' +
+        (i >= 0 ? ' onclick="alternaConcepte(' + i + ')"' : '') + '>' +
+        '<div class="line-main">' +
+          '<span class="l-name">' + esc(c.concepte) + '</span>' +
+          (m ? '<span class="l-val" style="color:var(--yellow)">' + m + '\'</span>' : '') +
+          '<span class="pill ' + (c.treballat ? 'win' : 'neutral') + '"' +
+            (i >= 0 ? ' id="cp-' + i + '"' : '') + '>' +
+            (c.foraDeLlista ? 'Fora de llista' : c.treballat ? 'Treballat' : 'Pendent') + '</span>' +
+        '</div>' +
+        (c.descripcio ? '<div class="l-note">' + esc(c.descripcio) + '</div>' : '') +
+        (m ?
+          '<div class="mini-bar"><div style="width:' + Math.round(100 * m / maxMin) +
+            '%; background:var(--yellow)"></div></div>' +
+          '<div class="l-note">' + nSes + (nSes === 1 ? ' sessió' : ' sessions') + '</div>'
+          : '') +
+      '</div>'
+    );
+  }).join('');
 }
 
 async function alternaConcepte(i){
